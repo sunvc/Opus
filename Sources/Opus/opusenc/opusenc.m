@@ -124,7 +124,7 @@ static inline int writeOggPage(ogg_page *page, DataItem *fileItem)
         bitrate = 30 * 1024;
         rate = 48000;
         coding_rate = 48000;
-        frame_size = 960;
+        frame_size = coding_rate / 50;
         with_cvbr = 1;
         max_ogg_delay = 48000;
         comment_padding = 512;
@@ -205,6 +205,8 @@ static inline int writeOggPage(ogg_page *page, DataItem *fileItem)
         coding_rate = 12000;
     else
         coding_rate = 8000;
+    
+    frame_size = coding_rate / 50;
     
     // Scale the resampler complexity, but only for 48000 output because the near-cutoff behavior matters a lot more at lower rates
     if (rate != coding_rate)
