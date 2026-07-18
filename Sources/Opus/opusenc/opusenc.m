@@ -82,7 +82,6 @@ static inline int writeOggPage(ogg_page *page, DataItem *fileItem) {
   ogg_int64_t last_granulepos;
   ogg_int64_t enc_granulepos;
   int last_segments;
-  int eos;
   OpusHeader header;
 
   ogg_int32_t _packetId;
@@ -522,6 +521,14 @@ static inline int writeOggPage(ogg_page *page, DataItem *fileItem) {
 
 - (bool)writeFrame:(uint8_t *)framePcmBytes
     frameByteCount:(NSUInteger)frameByteCount {
+  return [self writeFrame:framePcmBytes
+           frameByteCount:frameByteCount
+              endOfStream:false];
+}
+
+- (bool)writeFrame:(uint8_t *)framePcmBytes
+    frameByteCount:(NSUInteger)frameByteCount
+       endOfStream:(bool)endOfStream {
   // Main encoding loop (one frame per iteration)
   nb_samples = -1;
 
@@ -531,12 +538,11 @@ static inline int writeOggPage(ogg_page *page, DataItem *fileItem) {
   if (nb_samples < 0) {
     nb_samples = (opus_int32)(frameByteCount / 2);
     total_samples += nb_samples;
-    if (nb_samples < frame_size)
+    if (endOfStream || nb_samples < frame_size)
       op.e_o_s = 1;
     else
       op.e_o_s = 0;
   }
-  op.e_o_s |= eos;
 
   int nbBytes = 0;
 

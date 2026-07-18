@@ -25,6 +25,9 @@ typedef NS_ENUM(NSInteger, OggOpusWriterApplication) {
 
 - (bool)writeFrame:(uint8_t *_Nullable)framePcmBytes
     frameByteCount:(NSUInteger)frameByteCount;
+- (bool)writeFrame:(uint8_t *_Nullable)framePcmBytes
+    frameByteCount:(NSUInteger)frameByteCount
+       endOfStream:(bool)endOfStream;
 - (NSUInteger)encodedBytes;
 - (NSTimeInterval)encodedDuration;
 

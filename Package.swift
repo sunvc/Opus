@@ -13,7 +13,11 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "Opus",
-            targets: ["Opus", "libopus"]),
+            targets: ["Opus"]),
+        .library(
+            name: "OpusObjC",
+            targets: ["OpusObjC"]
+        ),
         .library(
             name: "libopus",
             targets: ["libopus"]
@@ -30,7 +34,7 @@ let package = Package(
         .binaryTarget(name: "libopus", path: "Sources/libopus/libopus.xcframework"),
         .binaryTarget(name: "Encryptor", path: "Sources/libopus/ToolBox.xcframework"),
         .target(
-            name: "Opus",
+            name: "OpusObjC",
             dependencies: ["libopus"],
             path: "Sources/Opus",
             publicHeadersPath: "include",
@@ -40,6 +44,11 @@ let package = Package(
                 .headerSearchPath("opusenc"),
                 .headerSearchPath("opusfile")
             ]
+        ),
+        .target(
+            name: "Opus",
+            dependencies: ["OpusObjC"],
+            path: "Sources/OpusSwift"
         ),
 
     ]

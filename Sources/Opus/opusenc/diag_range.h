@@ -25,4 +25,8 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-void save_range(FILE *frange, int frame_size, unsigned char *packet, int nbBytes, opus_uint32 *rngs, int nb_streams);
+#include <opus/opus_types.h>
+#include <stdio.h>
+
+void save_range(FILE *frange, int frame_size, unsigned char *packet,
+                int nbBytes, opus_uint32 *rngs, int nb_streams);

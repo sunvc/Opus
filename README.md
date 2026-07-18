@@ -29,7 +29,7 @@ https://github.com/uuneo/Opus
 .package(url: "https://github.com/uuneo/Opus", from: "1.0.0")
 ```
 
-然后把 `Opus` 加入 target 依赖：
+把 `Opus` 加入 target 依赖：
 
 ```swift
 .target(
@@ -55,7 +55,9 @@ https://github.com/uuneo/Opus
 ## 公开模块
 
 - `Opus`
-  - 高层封装，包含 `OggOpusWriter`、`OggOpusReader`、`DataItem`
+  - Swift 入口模块，包含 `OpusManager`
+- `OpusObjC`
+  - 底层 Objective-C 封装，包含 `OggOpusWriter`、`OggOpusReader`、`DataItem`
 - `libopus`
   - 底层 `libopus` 二进制模块
 - `Encryptor`
@@ -63,10 +65,29 @@ https://github.com/uuneo/Opus
 
 ## 快速开始
 
+### Swift 包装层
+
+```swift
+import AVFoundation
+import Opus
+
+let encoder = try OpusManager(
+    sampleRate: 16000,
+    bitrate: 24000,
+    application: .voip
+)
+
+try encoder.append(buffer: pcmBuffer)
+
+let opusData = try encoder.finish()
+```
+
+`OpusManager` 会把传入的 `AVAudioPCMBuffer` 转换为当前编码器需要的单声道 `16-bit PCM`，再交给底层 `OggOpusWriter`。
+
 ### Swift 写入 Ogg/Opus
 
 ```swift
-import Opus
+import OpusObjC
 
 let dataItem = DataItem(data: Data())
 
@@ -94,7 +115,7 @@ let opusData = dataItem.data()
 ### Swift 追加写入
 
 ```swift
-import Opus
+import OpusObjC
 
 let existing = DataItem(data: existingOpusData)
 let writer = OggOpusWriter(
@@ -111,7 +132,7 @@ guard writer.beginAppend(with: existing) else {
 ### Swift 暂停与恢复
 
 ```swift
-import Opus
+import OpusObjC
 
 let dataItem = DataItem(data: Data())
 let writer = OggOpusWriter(
@@ -140,7 +161,7 @@ guard resumedWriter.resume(with: dataItem, encoderState: state) else {
 ### Swift 读取 Ogg/Opus
 
 ```swift
-import Opus
+import OpusObjC
 
 if let reader = OggOpusReader(path: filePath) {
     var pcmBuffer = [UInt8](repeating: 0, count: 4096)
@@ -152,7 +173,7 @@ if let reader = OggOpusReader(path: filePath) {
 ### Swift 拆分 Opus 帧
 
 ```swift
-import Opus
+import OpusObjC
 
 if let frames = OggOpusReader.extractFrames(opusData) {
     for frame in frames {
@@ -164,8 +185,8 @@ if let frames = OggOpusReader.extractFrames(opusData) {
 ### Objective-C
 
 ```objc
-#import <Opus/OggOpusWriter.h>
-#import <Opus/DataItem.h>
+#import <OpusObjC/OggOpusWriter.h>
+#import <OpusObjC/DataItem.h>
 
 DataItem *dataItem = [[DataItem alloc] initWithData:[NSData data]];
 OggOpusWriter *writer =
