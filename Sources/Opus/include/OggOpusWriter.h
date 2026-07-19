@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import <opus/opus_defines.h>
+#import "../../libopus/libopus.xcframework/macos-arm64_x86_64/Headers/opus/opus_defines.h"
 
 NS_ASSUME_NONNULL_BEGIN
 

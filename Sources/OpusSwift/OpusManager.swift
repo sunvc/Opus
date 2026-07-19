@@ -51,28 +51,14 @@ public enum OpusApplication: Sendable {
             return .voip
         }
     }
-}
 
-private struct AudioFormatSignature: Equatable {
-    let commonFormat: AVAudioCommonFormat
-    let sampleRate: Double
-    let channelCount: AVAudioChannelCount
-    let isInterleaved: Bool
-
-    init(format: AVAudioFormat) {
-        commonFormat = format.commonFormat
-        sampleRate = format.sampleRate
-        channelCount = format.channelCount
-        isInterleaved = format.isInterleaved
-    }
-}
-
-private final class ConversionInputBox: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
-    var didProvideInput = false
-
-    init(buffer: AVAudioPCMBuffer) {
-        self.buffer = buffer
+    var packetApplication: OpusPacketEncoderApplication {
+        switch self {
+        case .audio:
+            return .audio
+        case .voip:
+            return .voip
+        }
     }
 }
 
@@ -83,11 +69,9 @@ public final class OpusManager {
 
     private let writer: OggOpusWriter
     private var dataItem: DataItem
-    private let targetFormat: AVAudioFormat
+    private let pcmConverter: PCM16MonoAudioBufferConverter
     private let frameByteCount: Int
 
-    private var converter: AVAudioConverter?
-    private var converterSourceSignature: AudioFormatSignature?
     private var pendingPCMData = Data()
     private var isFinished = false
 
@@ -130,19 +114,9 @@ public final class OpusManager {
         let resolvedSampleRate = sampleRate > 0 ? sampleRate : 48_000
         let resolvedBitrate = bitrate > 0 ? bitrate : 30_000
 
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16,
-            sampleRate: Double(resolvedSampleRate),
-            channels: 1,
-            interleaved: true
-        ) else {
-            throw OpusManagerError.failedToCreateTargetFormat
-        }
-
         self.sampleRate = resolvedSampleRate
         self.bitrate = resolvedBitrate
         self.application = application
-        self.targetFormat = targetFormat
         self.frameByteCount = (resolvedSampleRate / 50) * MemoryLayout<Int16>.size
         self.dataItem = DataItem(data: initialEncodedData)
         self.writer = OggOpusWriter(
@@ -150,6 +124,7 @@ public final class OpusManager {
             bitrate: resolvedBitrate,
             application: application.writerApplication
         )
+        self.pcmConverter = try Self.makePCMConverter(sampleRate: resolvedSampleRate)
 
         let started = appendToExistingData
             ? writer.beginAppend(with: dataItem)
@@ -217,8 +192,6 @@ public final class OpusManager {
 
     public func resume(from state: OpusEncoderState, encodedData: Data) throws {
         dataItem = DataItem(data: encodedData)
-        converter = nil
-        converterSourceSignature = nil
         pendingPCMData = state["manager_pendingPCMData"] as? Data ?? Data()
         isFinished = state["manager_isFinished"] as? Bool ?? false
 
@@ -257,86 +230,54 @@ public final class OpusManager {
         }
     }
 
-    private func pcmData(from buffer: AVAudioPCMBuffer) throws -> Data {
-        let audioBufferList = UnsafeMutableAudioBufferListPointer(
-            buffer.mutableAudioBufferList
-        )
-
-        guard
-            let audioBuffer = audioBufferList.first,
-            let rawPointer = audioBuffer.mData,
-            audioBuffer.mDataByteSize > 0
-        else {
-            throw OpusManagerError.failedToExtractPCMData
-        }
-
-        return Data(bytes: rawPointer, count: Int(audioBuffer.mDataByteSize))
-    }
-
     private func makePCM16MonoBuffer(from buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer {
-        if isCompatibleWithTarget(buffer.format) {
-            return buffer
-        }
-
-        let sourceSignature = AudioFormatSignature(format: buffer.format)
-        if converter == nil || converterSourceSignature != sourceSignature {
-            converter = AVAudioConverter(from: buffer.format, to: targetFormat)
-            converterSourceSignature = sourceSignature
-        }
-
-        guard let converter else {
-            throw OpusManagerError.failedToCreateConverter
-        }
-
-        let sampleRateRatio = targetFormat.sampleRate / buffer.format.sampleRate
-        let outputCapacity = AVAudioFrameCount(
-            max(1, ceil(Double(buffer.frameLength) * sampleRateRatio) + 1)
-        )
-
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: targetFormat,
-            frameCapacity: outputCapacity
-        ) else {
-            throw OpusManagerError.failedToCreateOutputBuffer
-        }
-
-        var conversionError: NSError?
-        let inputBox = ConversionInputBox(buffer: buffer)
-
-        let status = converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
-            if inputBox.didProvideInput {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-
-            inputBox.didProvideInput = true
-            outStatus.pointee = .haveData
-            return inputBox.buffer
-        }
-
-        if let conversionError {
-            throw OpusManagerError.failedToConvertBuffer(
-                conversionError.localizedDescription
-            )
-        }
-
-        switch status {
-        case .haveData, .inputRanDry, .endOfStream:
-            if outputBuffer.frameLength == 0 {
-                throw OpusManagerError.failedToConvertBuffer("Converted buffer is empty.")
-            }
-            return outputBuffer
-        case .error:
-            throw OpusManagerError.failedToConvertBuffer("Audio converter returned an error.")
-        @unknown default:
-            throw OpusManagerError.failedToConvertBuffer("Audio converter returned an unknown status.")
+        do {
+            return try pcmConverter.makePCM16MonoBuffer(from: buffer)
+        } catch {
+            throw mapPCMError(error)
         }
     }
 
-    private func isCompatibleWithTarget(_ format: AVAudioFormat) -> Bool {
-        format.commonFormat == targetFormat.commonFormat &&
-        format.sampleRate == targetFormat.sampleRate &&
-        format.channelCount == targetFormat.channelCount &&
-        format.isInterleaved == targetFormat.isInterleaved
+    private func pcmData(from buffer: AVAudioPCMBuffer) throws -> Data {
+        do {
+            return try pcmConverter.pcmData(from: buffer)
+        } catch {
+            throw mapPCMError(error)
+        }
+    }
+
+    private static func makePCMConverter(sampleRate: Int) throws -> PCM16MonoAudioBufferConverter {
+        do {
+            return try PCM16MonoAudioBufferConverter(sampleRate: sampleRate)
+        } catch {
+            throw Self.mapPCMError(error)
+        }
+    }
+
+    private func mapPCMError(_ error: Error) -> OpusManagerError {
+        Self.mapPCMError(error)
+    }
+
+    private static func mapPCMError(_ error: Error) -> OpusManagerError {
+        guard let error = error as? PCM16MonoAudioError else {
+            return .failedToConvertBuffer(error.localizedDescription)
+        }
+
+        switch error {
+        case .failedToCreateTargetFormat:
+            return .failedToCreateTargetFormat
+        case .failedToCreateConverter:
+            return .failedToCreateConverter
+        case .failedToCreateOutputBuffer:
+            return .failedToCreateOutputBuffer
+        case .failedToExtractPCMData:
+            return .failedToExtractPCMData
+        case .failedToConvertBuffer(let message):
+            return .failedToConvertBuffer(message)
+        case .failedToCreatePCMBuffer:
+            return .failedToConvertBuffer("Failed to create PCM buffer from decoded data.")
+        case .invalidPCMByteCount:
+            return .failedToConvertBuffer("PCM data byte count is not aligned to Int16 samples.")
+        }
     }
 }
